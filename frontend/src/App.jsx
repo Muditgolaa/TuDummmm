@@ -1,41 +1,38 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
+import { Routes, Route, Navigate, Outlet } from "react-router-dom";
 import Navbar from "./components/navbar";
-import { useHashRoute } from "./lib/useHashRoute";
+import ProtectedRoute from "./components/ProtectedRoute";
+import { useAuth } from "./context/AuthContext";
+import { attachUser } from "./lib/store";
+import Login from "./pages/Login";
+import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard";
 import Tasks from "./pages/Tasks";
 import About from "./pages/About";
-import AuthScreen from "./pages/AuthScreen";
-import { cloudEnabled, getUser, onAuthChange, signOut } from "./lib/supabase";
-import { attachUser } from "./lib/store";
 
-function App() {
-  const route = useHashRoute();
-  const [user, setUser] = useState(null);
-  const [ready, setReady] = useState(!cloudEnabled); // no cloud = ready immediately (local dev)
-
-  useEffect(() => {
-    if (!cloudEnabled) { attachUser(null); return; }
-    let mounted = true;
-    getUser().then((u) => {
-      if (!mounted) return;
-      setUser(u); attachUser(u); setReady(true);
-    });
-    const off = onAuthChange((u) => { setUser(u); attachUser(u); setReady(true); });
-    return () => { mounted = false; off(); };
-  }, []);
-
-  if (cloudEnabled && !ready) {
-    return <div className="min-h-screen grid place-items-center text-[var(--muted)]">Loading…</div>;
-  }
-  if (cloudEnabled && !user) return <AuthScreen />;
-
-  const page = route === "tasks" ? <Tasks /> : route === "about" ? <About /> : <Dashboard />;
+// Shared shell for authenticated pages: navbar + syncs the tracker store to the user.
+function Layout() {
+  const { user } = useAuth();
+  useEffect(() => { attachUser(user); }, [user]);
   return (
     <>
-      <Navbar user={user} onSignOut={() => signOut()} />
-      {page}
+      <Navbar />
+      <Outlet />
     </>
   );
 }
 
-export default App;
+export default function App() {
+  return (
+    <Routes>
+      <Route path="/login" element={<Login />} />
+      <Route path="/register" element={<Register />} />
+      <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/tasks" element={<Tasks />} />
+        <Route path="/about" element={<About />} />
+      </Route>
+      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+    </Routes>
+  );
+}
