@@ -6,6 +6,9 @@ import authRoutes from "./routes/auth.js";
 import sessionRoutes from "./routes/sessions.js";
 import questionRoutes from "./routes/questions.js"; 
 import analyticsRoutes from "./routes/analytics.js";
+import habitRoutes from "./routes/habits.js";
+import logRoutes from "./routes/logs.js";
+import todoRoutes from "./routes/todos.js";
 
 // Refuse to start if a critical secret is missing (fail loud, not silent).
 for (const key of ["MONGODB_URI", "JWT_SECRET", "GROQ_API_KEY", "CLIENT_URL"]) {
@@ -26,6 +29,9 @@ app.get("/health", (req, res) => {
     res.json({ status: "ok", message: "TuDummmm backend is running 🚀" });
 });
 
+app.use("/api/habits", habitRoutes);
+app.use("/api/logs", logRoutes);
+app.use("/api/todos", todoRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/sessions", sessionRoutes); 
 app.use("/api/questions", questionRoutes);
