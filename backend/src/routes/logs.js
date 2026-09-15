@@ -8,6 +8,13 @@ router.use(requireAuth);
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+// Regex only checks shape; this also rejects impossible dates like 2026-13-99.
+function isValidYmd(s) {
+  if (!DATE_RE.test(s)) return false;
+  const d = new Date(s + "T00:00:00Z");
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
+}
+
 // GET /api/logs — every day log I have (the UI turns this into a date→log map)
 router.get("/", async (req, res) => {
   const logs = await DayLog.find({ userId: req.userId }).sort({ date: 1 });
@@ -18,8 +25,8 @@ router.get("/", async (req, res) => {
 router.put("/:date", async (req, res) => {
   try {
     const { date } = req.params;
-    if (!DATE_RE.test(date)) {
-      return res.status(400).json({ error: "Date must be YYYY-MM-DD" });
+    if (!isValidYmd(date)) {
+      return res.status(400).json({ error: "Date must be a real YYYY-MM-DD" });
     }
 
     const set = {};
@@ -61,6 +68,7 @@ router.put("/:date", async (req, res) => {
     );
     res.json({ log });
   } catch (err) {
+    if (err.name === "CastError") return res.status(400).json({ error: "Invalid id" });
     console.error("Upsert log error:", err.message);
     res.status(500).json({ error: "Failed to save day log" });
   }

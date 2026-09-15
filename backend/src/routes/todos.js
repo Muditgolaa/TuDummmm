@@ -20,9 +20,10 @@ router.post("/", async (req, res) => {
     }
     const created = await Todo.create({ userId: req.userId, todo: todo.trim() });
     res.status(201).json({ todo: created });
-  } catch (err) {
-    console.error("Create todo error:", err.message);
-    res.status(500).json({ error: "Failed to create todo" });
+    } catch (err) {
+    if (err.name === "CastError") return res.status(400).json({ error: "Invalid id" });
+    console.error("Update todo error:", err.message);
+    res.status(500).json({ error: "Failed to update todo" });
   }
 });
 
@@ -42,7 +43,8 @@ router.patch("/:id", async (req, res) => {
     );
     if (!todo) return res.status(404).json({ error: "Todo not found" });
     res.json({ todo });
-  } catch (err) {
+    } catch (err) {
+    if (err.name === "CastError") return res.status(400).json({ error: "Invalid id" });
     console.error("Update todo error:", err.message);
     res.status(500).json({ error: "Failed to update todo" });
   }

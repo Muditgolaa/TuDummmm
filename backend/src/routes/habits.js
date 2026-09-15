@@ -32,10 +32,12 @@ router.post("/", async (req, res) => {
     const habit = await Habit.create({ userId: req.userId, name: name.trim(), color: chosen });
     res.status(201).json({ habit });
   } catch (err) {
-    console.error("Create habit error:", err.message);
-    res.status(500).json({ error: "Failed to create habit" });
+    if (err.name === "CastError") return res.status(400).json({ error: "Invalid id" });
+    console.error("Update habit error:", err.message);
+    res.status(500).json({ error: "Failed to update habit" });
   }
 });
+
 
 // PATCH /api/habits/:id — edit name and/or colour in place
 router.patch("/:id", async (req, res) => {
@@ -54,7 +56,8 @@ router.patch("/:id", async (req, res) => {
     );
     if (!habit) return res.status(404).json({ error: "Habit not found" });
     res.json({ habit });
-  } catch (err) {
+    } catch (err) {
+    if (err.name === "CastError") return res.status(400).json({ error: "Invalid id" });
     console.error("Update habit error:", err.message);
     res.status(500).json({ error: "Failed to update habit" });
   }
