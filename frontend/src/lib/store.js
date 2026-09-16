@@ -1,176 +1,213 @@
 import { useSyncExternalStore } from "react";
 import { v4 as uuidv4 } from "uuid";
-import { ymd, today, addDays } from "./dates";
-import { cloudEnabled, cloudLoad, cloudSave, cloudSubscribe } from "./supabase";
+import { today } from "./dates";
+import { api } from "../api/client";
 
-const COLORS = ["#f6a13d","#37d29a","#5aa2f6","#c98bff","#f97316","#e05a8a","#4bd0d0","#f2c94c"];
+// The tracker's data lives in MongoDB behind the API. This store keeps an
+// in-memory mirror in the exact shape the UI expects, hydrates it on login, and
+// writes through optimistically (update UI now, reconcile with the server,
+// roll back on failure).
 
-let currentUserId = null; // null = guest / local-only
-function cacheKey() {
-  return currentUserId ? `tudum-state-${currentUserId}` : "tudum-state-v1";
-}
+// habits: [{ id, name, color }]
+// logs:   { "YYYY-MM-DD": { done: { [habitId]: true }, minutes, note } }
+// todos:  [{ id, todo, isCompleted }]
+let state = { habits: [], logs: {}, todos: [], isDemo: false, loading: true };
 
-// ---------- shape helpers ----------
-function blank() {
-  return {
-    habits: [
-      { id: uuidv4(), name: "DSA practice", color: COLORS[0] },
-      { id: uuidv4(), name: "Aptitude", color: COLORS[1] },
-      { id: uuidv4(), name: "Core subject revision", color: COLORS[2] },
-      { id: uuidv4(), name: "Reading / notes", color: COLORS[3] },
-    ],
-    logs: {}, todos: [], settings: {}, isDemo: false, updatedAt: Date.now(),
-  };
-}
-function demo() {
-  const s = blank();
-  s.isDemo = true;
-  const ids = s.habits.map((h) => h.id);
-  for (let i = 62; i >= 0; i--) {
-    const d = ymd(addDays(new Date(), -i));
-    let seed = Math.sin(i * 12.9898) * 43758.5453;
-    seed = seed - Math.floor(seed);
-    let active = i <= 6 ? true : seed > 0.32;
-    if (i === 9 || i === 16 || i === 23) active = false;
-    if (!active) continue;
-    const log = { done: {}, minutes: 0, note: "" };
-    let howMany = i <= 6 ? 2 + Math.floor(seed * 3) : 1 + Math.floor(((seed * 7) % 1) * ids.length);
-    howMany = Math.max(1, Math.min(ids.length, howMany));
-    for (let j = 0; j < howMany; j++) log.done[ids[j]] = true;
-    log.minutes = 20 * howMany + Math.floor(seed * 40);
-    s.logs[d] = log;
-  }
-  return s;
-}
-function loadLocal() {
-  try {
-    const raw = localStorage.getItem(cacheKey());
-    if (raw) return JSON.parse(raw);
-  } catch { /* ignore */ }
-  // guest first-run: pull in legacy todos so nothing is lost
-  if (!currentUserId) {
-    try {
-      const old = localStorage.getItem("todos");
-      if (old) {
-        const migrated = JSON.parse(old);
-        if (migrated.length) return { ...blank(), todos: migrated };
-      }
-    } catch { /* ignore */ }
-  }
-  return demo();
-}
-
-// ---------- external store ----------
-let state = loadLocal();
 const listeners = new Set();
 function subscribe(cb) { listeners.add(cb); return () => listeners.delete(cb); }
-function notifyAll() { for (const l of listeners) l(); }
-
-function setState(next, cache = true) {
-  state = next;
-  if (cache) { try { localStorage.setItem(cacheKey(), JSON.stringify(state)); } catch { /* ignore */ } }
-  notifyAll();
-}
-
-let saveTimer = null;
-function commit(next) {
-  setState({ ...next, updatedAt: Date.now() });
-  if (cloudEnabled && currentUserId) {
-    clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => cloudSave(currentUserId, state), 600);
-  }
-}
-
-// adopt a newer remote state (live updates from another device)
-function adopt(remote) {
-  if (!remote || (remote.updatedAt || 0) <= (state.updatedAt || 0)) return;
-  setState(remote);
-}
+function setState(next) { state = next; for (const l of listeners) l(); }
 
 export function useStore() {
   return useSyncExternalStore(subscribe, () => state);
 }
 
-// ---------- called by the app when auth state changes ----------
-let unsub = null;
-export async function attachUser(user) {
-  clearTimeout(saveTimer);
-  if (unsub) { unsub(); unsub = null; }
-  currentUserId = user ? user.id : null;
+// Monotonic "load generation". A hydration only applies if it's still the latest
+// thing that happened. Any newer load — or any user write (touch) — supersedes an
+// in-flight fetch, so a slow/duplicate GET can never overwrite fresher state.
+let loadSeq = 0;
+function touch() { loadSeq++; }
 
-  setState(loadLocal()); // instant local render for this identity
+// ---------- API <-> UI shape adapters ----------
+const habitFromApi = (h) => ({ id: h._id, name: h.name, color: h.color });
+const todoFromApi = (t) => ({ id: t._id, todo: t.todo, isCompleted: t.isCompleted });
 
-  if (cloudEnabled && currentUserId) {
-    const remote = await cloudLoad(currentUserId);
-    if (remote) setState(remote);                      // cloud is source of truth
-    else if (!state.isDemo) cloudSave(currentUserId, state); // seed real (never demo)
-    unsub = cloudSubscribe(currentUserId, adopt);
+function logsFromApi(arr) {
+  const map = {};
+  for (const l of arr) {
+    const done = {};
+    for (const hid of l.completedHabits || []) done[String(hid)] = true;
+    map[l.date] = { done, minutes: l.minutes || 0, note: l.note || "" };
   }
+  return map;
 }
 
-// ---------- helpers ----------
-function leaveDemo(next) {
-  if (next.isDemo) return { ...next, logs: {}, isDemo: false };
-  return next;
-}
+// Fresh, mutation-safe copy of today's log (new refs for React).
 function withTodayLog(logs) {
   const t = today();
-  const log = logs[t] ? { ...logs[t] } : { done: {}, minutes: 0, note: "" };
-  if (!log.done) log.done = {};
+  const src = logs[t];
+  const log = {
+    done: { ...(src?.done || {}) },
+    minutes: src?.minutes || 0,
+    note: src?.note || "",
+  };
   return { logs: { ...logs, [t]: log }, log, t };
 }
 
-// ---------- actions ----------
+const completedArray = (log) => Object.keys(log.done).filter((id) => log.done[id]);
+
+// ---------- called by App's Layout when auth changes ----------
+export async function attachUser(user) {
+  const seq = ++loadSeq; // claim this generation
+  if (!user) {
+    setState({ habits: [], logs: {}, todos: [], isDemo: false, loading: false });
+    return;
+  }
+  setState({ ...state, loading: true });
+  try {
+    const [h, l, t] = await Promise.all([
+      api.get("/api/habits"),
+      api.get("/api/logs"),
+      api.get("/api/todos"),
+    ]);
+    if (seq !== loadSeq) return; // a newer load or a user write happened — don't clobber
+    setState({
+      habits: (h.habits || []).map(habitFromApi),
+      logs: logsFromApi(l.logs || []),
+      todos: (t.todos || []).map(todoFromApi),
+      isDemo: false,
+      loading: false,
+    });
+  } catch (err) { console.error(err);
+    if (seq !== loadSeq) return;
+    setState({ habits: [], logs: {}, todos: [], isDemo: false, loading: false });
+  }
+}
+
+// ---------- actions (optimistic + reconcile) ----------
+let noteTimer = null;
+
 export const actions = {
-  toggleHabit(id) {
-    let next = leaveDemo({ ...state });
-    const { logs, log, t } = withTodayLog(next.logs);
-    log.done = { ...log.done, [id]: !log.done[id] };
-    logs[t] = log;
-    commit({ ...next, logs });
-  },
-  addHabit(name) {
+  async addHabit(name) {
     const clean = name.trim();
     if (!clean) return;
-    const next = leaveDemo({ ...state });
-    const used = next.habits.map((h) => h.color);
-    const color = COLORS.find((c) => !used.includes(c)) || COLORS[next.habits.length % COLORS.length];
-    commit({ ...next, habits: [...next.habits, { id: uuidv4(), name: clean, color }] });
+    touch();
+    const prev = state;
+    const tempId = uuidv4();
+    setState({ ...state, habits: [...state.habits, { id: tempId, name: clean, color: "var(--border-strong)" }] });
+    try {
+      const { habit } = await api.post("/api/habits", { name: clean });
+      setState({ ...state, habits: state.habits.map((h) => (h.id === tempId ? habitFromApi(habit) : h)) });
+    } catch (err) { console.error(err);
+      setState(prev);
+    }
   },
-  removeHabit(id) {
-    commit({ ...state, habits: state.habits.filter((h) => h.id !== id) });
+
+  async removeHabit(id) {
+    touch();
+    const prev = state;
+    const logs = {};
+    for (const [d, l] of Object.entries(state.logs)) {
+      const { [id]: removed, ...rest } = l.done || {};
+      void removed;
+      logs[d] = { ...l, done: rest };
+    }
+    setState({ ...state, habits: state.habits.filter((h) => h.id !== id), logs });
+    try {
+      await api.del(`/api/habits/${id}`);
+    } catch (err) { console.error(err);
+      setState(prev);
+    }
   },
-  addMinutes(n) {
-    let next = leaveDemo({ ...state });
-    const { logs, log, t } = withTodayLog(next.logs);
+
+  async toggleHabit(id) {
+    touch();
+    const prev = state;
+    const { logs, log, t } = withTodayLog(state.logs);
+    log.done[id] = !log.done[id];
+    setState({ ...state, logs });
+    try {
+      await api.put(`/api/logs/${t}`, { completedHabits: completedArray(log) });
+    } catch (err) { console.error(err);
+      setState(prev);
+    }
+  },
+
+  async addMinutes(n) {
+    touch();
+    const prev = state;
+    const { logs, log, t } = withTodayLog(state.logs);
     log.minutes = n === 0 ? 0 : (log.minutes || 0) + n;
-    logs[t] = log;
-    commit({ ...next, logs });
+    setState({ ...state, logs });
+    try {
+      await api.put(`/api/logs/${t}`, { minutes: log.minutes });
+    } catch (err) { console.error(err);
+      setState(prev);
+    }
   },
+
   setNote(text) {
-    let next = leaveDemo({ ...state });
-    const { logs, log, t } = withTodayLog(next.logs);
+    touch();
+    const { logs, log, t } = withTodayLog(state.logs);
     log.note = text;
-    logs[t] = log;
-    commit({ ...next, logs });
+    setState({ ...state, logs });
+    clearTimeout(noteTimer);
+    noteTimer = setTimeout(() => {
+      api.put(`/api/logs/${t}`, { note: text }).catch(() => {});
+    }, 600);
   },
-  startFresh() {
-    commit({ ...state, logs: {}, isDemo: false });
-  },
-  addTodo(text) {
+
+  startFresh() {},
+
+  async addTodo(text) {
     const clean = text.trim();
     if (!clean) return;
-    commit({ ...state, todos: [...state.todos, { id: uuidv4(), todo: clean, isCompleted: false }] });
+    touch();
+    const prev = state;
+    const tempId = uuidv4();
+    setState({ ...state, todos: [...state.todos, { id: tempId, todo: clean, isCompleted: false }] });
+    try {
+      const { todo } = await api.post("/api/todos", { todo: clean });
+      setState({ ...state, todos: state.todos.map((x) => (x.id === tempId ? todoFromApi(todo) : x)) });
+    } catch (err) { console.error(err);
+      setState(prev);
+    }
   },
-  toggleTodo(id) {
-    commit({ ...state, todos: state.todos.map((x) => (x.id === id ? { ...x, isCompleted: !x.isCompleted } : x)) });
+
+  async toggleTodo(id) {
+    touch();
+    const prev = state;
+    const target = state.todos.find((x) => x.id === id);
+    if (!target) return;
+    const next = !target.isCompleted;
+    setState({ ...state, todos: state.todos.map((x) => (x.id === id ? { ...x, isCompleted: next } : x)) });
+    try {
+      await api.patch(`/api/todos/${id}`, { isCompleted: next });
+    } catch (err) { console.error(err);
+      setState(prev);
+    }
   },
-  deleteTodo(id) {
-    commit({ ...state, todos: state.todos.filter((x) => x.id !== id) });
-  },
-  updateTodo(id, text) {
+
+  async updateTodo(id, text) {
     const clean = text.trim();
     if (!clean) return;
-    commit({ ...state, todos: state.todos.map((x) => (x.id === id ? { ...x, todo: clean } : x)) });
+    touch();
+    const prev = state;
+    setState({ ...state, todos: state.todos.map((x) => (x.id === id ? { ...x, todo: clean } : x)) });
+    try {
+      await api.patch(`/api/todos/${id}`, { todo: clean });
+    } catch (err) { console.error(err);
+      setState(prev);
+    }
+  },
+
+  async deleteTodo(id) {
+    touch();
+    const prev = state;
+    setState({ ...state, todos: state.todos.filter((x) => x.id !== id) });
+    try {
+      await api.del(`/api/todos/${id}`);
+    } catch (err) { console.error(err);
+      setState(prev);
+    }
   },
 };
