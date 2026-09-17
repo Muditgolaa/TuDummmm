@@ -14,6 +14,7 @@ function getInitialTheme() {
 const LINKS = [
   { to: "/dashboard", label: "Home" },
   { to: "/tasks", label: "Tasks" },
+  { to: "/interviews", label: "Mock interview" },
   { to: "/about", label: "About" },
 ];
 

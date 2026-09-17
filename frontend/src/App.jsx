@@ -9,6 +9,10 @@ import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard";
 import Tasks from "./pages/Tasks";
 import About from "./pages/About";
+import Interviews from "./pages/Interviews";
+import NewSession from "./pages/NewSession";
+import Session from "./pages/Session";
+import Report from "./pages/Report";
 
 // Shared shell for authenticated pages: navbar + syncs the tracker store to the user.
 function Layout() {
@@ -31,6 +35,10 @@ export default function App() {
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/tasks" element={<Tasks />} />
         <Route path="/about" element={<About />} />
+        <Route path="/interviews" element={<Interviews />} />
+        <Route path="/interviews/new" element={<NewSession />} />
+        <Route path="/interviews/:id" element={<Session />} />
+        <Route path="/interviews/:id/report" element={<Report />} />
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
