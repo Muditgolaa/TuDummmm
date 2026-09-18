@@ -1,6 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { api } from "../api/client";
+import { actions } from "../lib/store";
 import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 
 export default function Session() {
@@ -15,8 +16,10 @@ export default function Session() {
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [streakFed, setStreakFed] = useState(false);
 
   const speech = useSpeechRecognition();
+  const runSecondsRef = useRef(0); // total time spent answering this run
 
   // Load questions + any existing answers (so Back + resume work).
   useEffect(() => {
@@ -81,6 +84,14 @@ export default function Session() {
         ...prev,
         [current._id]: { score: res.answer.score, feedback: res.answer.feedback, content: answer },
       }));
+
+      // Phase 5 glue: when this answer completes the session, log the interview
+      // as focus minutes on today's DayLog so finishing a mock feeds the streak.
+      runSecondsRef.current += seconds;
+      if (res.sessionStatus === "completed") {
+        actions.addMinutes(Math.max(1, Math.round(runSecondsRef.current / 60)));
+        setStreakFed(true);
+      }
     } catch (err) {
       alert(err.message);
     } finally {
@@ -162,6 +173,13 @@ export default function Session() {
           </div>
           {speech.listening && <p className="mt-2 text-center text-xs text-[var(--muted)]">Listening… speak now</p>}
         </form>
+      )}
+
+      {/* streak-fed confirmation (Phase 5) */}
+      {streakFed && (
+        <p className="mt-4 text-center text-sm font-semibold" style={{ color: "var(--amber)" }}>
+          🔥 Logged to today — this session counts toward your streak.
+        </p>
       )}
 
       {/* nav */}
