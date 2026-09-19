@@ -1,10 +1,12 @@
 import "dotenv/config";        // loads variables from .env into process.env
 import express from "express";
 import cors from "cors";
+import helmet from "helmet";
 import { connectDB } from "./config/db.js";
+import { writeLimiter } from "./middleware/rateLimiter.js";
 import authRoutes from "./routes/auth.js";
 import sessionRoutes from "./routes/sessions.js";
-import questionRoutes from "./routes/questions.js"; 
+import questionRoutes from "./routes/questions.js";
 import analyticsRoutes from "./routes/analytics.js";
 import habitRoutes from "./routes/habits.js";
 import logRoutes from "./routes/logs.js";
@@ -20,22 +22,27 @@ for (const key of ["MONGODB_URI", "JWT_SECRET", "GROQ_API_KEY", "CLIENT_URL"]) {
 
 const app = express();
 
-// Middleware (runs on every req) 
-app.use(cors({ origin: process.env.CLIENT_URL }));  // allow the React app to call us
-app.use(express.json());                            // parse JSON request bodies into req.body
+// --- Security & parsing middleware (runs on every request) ---
+// helmet sets sensible security headers. crossOriginResourcePolicy is relaxed to "cross-origin" because the frontend is served from a different origin (:5173).
+app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
+app.use(cors({ origin: process.env.CLIENT_URL })); // only our React app may call us
+app.use(express.json({ limit: "16kb" }));          // parse JSON + cap body size
 
-//simple health check
+// simple health check
 app.get("/health", (req, res) => {
-    res.json({ status: "ok", message: "TuDummmm backend is running 🚀" });
+  res.json({ status: "ok", message: "TuDummmm backend is running 🚀" });
 });
 
-app.use("/api/habits", habitRoutes);
-app.use("/api/logs", logRoutes);
-app.use("/api/todos", todoRoutes);
+// Tracker routes (write-rate-limited; GETs are exempt inside the limiter)
+app.use("/api/habits", writeLimiter, habitRoutes);
+app.use("/api/logs", writeLimiter, logRoutes);
+app.use("/api/todos", writeLimiter, todoRoutes);
+
+// Auth + interview routes
 app.use("/api/auth", authRoutes);
-app.use("/api/sessions", sessionRoutes); 
+app.use("/api/sessions", sessionRoutes);
 app.use("/api/questions", questionRoutes);
-app.use("/api/analytics", analyticsRoutes); 
+app.use("/api/analytics", analyticsRoutes);
 
 // 404 for unknown routes
 app.use((req, res) => res.status(404).json({ error: "Not found" }));
@@ -49,7 +56,7 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: "Something went wrong" });
 });
 
-// Start the server 
+// Start the server
 const PORT = process.env.PORT || 5001;
 
 connectDB().then(() => {
