@@ -1,89 +1,86 @@
-// Pure functions that turn a `logs` map into streaks, activity and heatmap levels. `logs` shape: { "YYYY-MM-DD": { done: {habitId: bool}, minutes: number, note: string } }
+import { describe, it, expect } from "vitest";
+import {
+  doneCount, isActive, currentStreak, longestStreak,
+  habitStreak, level, weekSummary, totalActiveDays,
+} from "./streaks";
+import { ymd, addDays } from "./dates";
 
-import { ymd, parseYmd, addDays } from "./dates";
-
-export function doneCount(logs, ds) {
-  const l = logs[ds];
-  if (!l || !l.done) return 0;
-  return Object.values(l.done).filter(Boolean).length;
+// Helper: build a logs map keyed by "days ago" for readable tests.
+const day = (n) => ymd(addDays(new Date(), -n));
+function logs(spec) {
+  // spec: { [daysAgo]: { done?: {id:true}, minutes?, note? } }
+  const out = {};
+  for (const [n, v] of Object.entries(spec)) out[day(Number(n))] = { done: {}, minutes: 0, note: "", ...v };
+  return out;
 }
 
-export function isActive(logs, ds) {
-  const l = logs[ds];
-  return doneCount(logs, ds) >= 1 || (l && l.minutes > 0);
-}
+describe("doneCount", () => {
+  it("counts only truthy habits", () => {
+    expect(doneCount(logs({ 0: { done: { a: true, b: false, c: true } } }), day(0))).toBe(2);
+  });
+  it("is 0 for a missing day", () => {
+    expect(doneCount({}, day(0))).toBe(0);
+  });
+});
 
-// Consecutive active days ending today — or yesterday, so an unfinished
-// today doesn't read as a broken streak.
-export function currentStreak(logs) {
-  let cur = new Date();
-  if (!isActive(logs, ymd(cur))) cur = addDays(cur, -1);
-  let s = 0;
-  while (isActive(logs, ymd(cur))) {
-    s++;
-    cur = addDays(cur, -1);
-  }
-  return s;
-}
+describe("isActive", () => {
+  it("is active with >=1 habit done", () => {
+    expect(isActive(logs({ 0: { done: { a: true } } }), day(0))).toBe(true);
+  });
+  it("is active with focus minutes but no habits", () => {
+    expect(isActive(logs({ 0: { minutes: 25 } }), day(0))).toBe(true);
+  });
+  it("is inactive with nothing", () => {
+    expect(isActive(logs({ 0: {} }), day(0))).toBe(false);
+  });
+});
 
-export function longestStreak(logs) {
-  const keys = Object.keys(logs);
-  if (!keys.length) return 0;
-  keys.sort();
-  const start = parseYmd(keys[0]);
-  const end = new Date();
-  let run = 0;
-  let best = 0;
-  for (let d = start; ymd(d) <= ymd(end); d = addDays(d, 1)) {
-    if (isActive(logs, ymd(d))) {
-      run++;
-      if (run > best) best = run;
-    } else {
-      run = 0;
-    }
-  }
-  return best;
-}
+describe("currentStreak", () => {
+  it("counts consecutive active days ending today", () => {
+    expect(currentStreak(logs({ 0: { done: { a: true } }, 1: { done: { a: true } }, 2: { minutes: 10 } }))).toBe(3);
+  });
+  it("does not break when today is not yet logged (counts through yesterday)", () => {
+    expect(currentStreak(logs({ 1: { done: { a: true } }, 2: { done: { a: true } } }))).toBe(2);
+  });
+  it("is 0 when there is a gap at yesterday and today", () => {
+    expect(currentStreak(logs({ 3: { done: { a: true } } }))).toBe(0);
+  });
+});
 
-export function habitStreak(logs, id) {
-  const done = (ds) => {
-    const l = logs[ds];
-    return !!(l && l.done && l.done[id]);
-  };
-  let cur = new Date();
-  if (!done(ymd(cur))) cur = addDays(cur, -1);
-  let s = 0;
-  while (done(ymd(cur))) {
-    s++;
-    cur = addDays(cur, -1);
-  }
-  return s;
-}
+describe("habitStreak", () => {
+  it("counts consecutive days a specific habit was done", () => {
+    expect(habitStreak(logs({ 0: { done: { x: true } }, 1: { done: { x: true } } }), "x")).toBe(2);
+  });
+  it("ignores days where a different habit was done", () => {
+    expect(habitStreak(logs({ 0: { done: { y: true } } }), "x")).toBe(0);
+  });
+});
 
-// Heatmap intensity 0–4, from the share of habits finished that day.
-export function level(logs, ds, habitCount) {
-  const c = doneCount(logs, ds);
-  if (c <= 0) return 0;
-  const t = Math.max(1, habitCount);
-  const r = c / t;
-  if (r >= 1) return 4;
-  if (r >= 0.66) return 3;
-  if (r >= 0.34) return 2;
-  return 1;
-}
+describe("level", () => {
+  it("is 0 with nothing done", () => {
+    expect(level(logs({ 0: {} }), day(0), 4)).toBe(0);
+  });
+  it("is 4 when all habits done", () => {
+    expect(level(logs({ 0: { done: { a: true, b: true, c: true, d: true } } }), day(0), 4)).toBe(4);
+  });
+});
 
-export function weekSummary(logs) {
-  let activeDays = 0;
-  let minutes = 0;
-  for (let i = 0; i < 7; i++) {
-    const ds = ymd(addDays(new Date(), -i));
-    if (isActive(logs, ds)) activeDays++;
-    const l = logs[ds];
-    if (l) minutes += l.minutes || 0;
-  }
-  return { activeDays, minutes };
-}
+describe("weekSummary + totalActiveDays", () => {
+  it("sums active days and minutes over the last 7 days", () => {
+    const l = logs({ 0: { done: { a: true }, minutes: 30 }, 1: { minutes: 15 }, 3: { done: { a: true } } });
+    const s = weekSummary(l);
+    expect(s.activeDays).toBe(3);
+    expect(s.minutes).toBe(45);
+  });
+  it("totalActiveDays counts every active day", () => {
+    expect(totalActiveDays(logs({ 0: { done: { a: true } }, 10: { minutes: 5 }, 11: {} }))).toBe(2);
+  });
+});
 
-export function totalActiveDays(logs) {
-  return Object.keys(logs).filter((k) => isActive(logs, k)).length;
-}
+describe("longestStreak", () => {
+  it("finds the longest consecutive active run", () => {
+    // active: 5,4,3 (run of 3) then gap at 2, then 1,0 (run of 2)
+    const l = logs({ 5: { done: { a: true } }, 4: { minutes: 5 }, 3: { done: { a: true } }, 1: { done: { a: true } }, 0: { done: { a: true } } });
+    expect(longestStreak(l)).toBe(3);
+  });
+});
