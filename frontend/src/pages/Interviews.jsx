@@ -1,12 +1,12 @@
 import { Link } from "react-router-dom";
 import { useFetch } from "../hooks/useFetch";
-import { api } from "../api/client";
+import { interviewApi } from "../api/client";
 
 // The mock-interview home: analytics tiles + your past sessions.
 // Renders inside the app Layout, so no header/logout here (the Navbar handles that).
 export default function Interviews() {
-  const analytics = useFetch("/api/analytics");
-  const sessionsReq = useFetch("/api/sessions");
+  const analytics = useFetch("/api/analytics",interviewApi);
+  const sessionsReq = useFetch("/api/sessions",interviewApi);
 
   const stats = analytics.data;
   const sessions = sessionsReq.data?.sessions || [];
@@ -14,7 +14,7 @@ export default function Interviews() {
   async function handleDelete(id) {
     if (!confirm("Delete this session? This can't be undone.")) return;
     try {
-      await api.del(`/api/sessions/${id}`);
+      await interviewApi.del(`/api/sessions/${id}`);
       sessionsReq.refetch();
       analytics.refetch();
     } catch (err) {
