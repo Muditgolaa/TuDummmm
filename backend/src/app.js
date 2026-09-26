@@ -1,7 +1,7 @@
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
-import { writeLimiter } from "./middleware/rateLimiter.js";
+import { writeLimiter , authLimiter } from "./middleware/rateLimiter.js";
 import authRoutes from "./routes/auth.js";
 import sessionRoutes from "./routes/sessions.js";
 import questionRoutes from "./routes/questions.js";
@@ -25,7 +25,7 @@ app.get("/health", (req, res) => {
 app.use("/api/habits", writeLimiter, habitRoutes);
 app.use("/api/logs", writeLimiter, logRoutes);
 app.use("/api/todos", writeLimiter, todoRoutes);
-app.use("/api/auth", authRoutes);
+app.use("/api/auth", authLimiter, authRoutes);
 app.use("/api/sessions", sessionRoutes);
 app.use("/api/questions", questionRoutes);
 app.use("/api/analytics", analyticsRoutes);

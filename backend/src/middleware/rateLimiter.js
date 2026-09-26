@@ -15,3 +15,10 @@ export const writeLimiter = rateLimit({
   skip: (req) => req.method === "GET",
   message: { error: "Too many requests — please slow down a moment." },
 });
+
+// Caps auth attempts (login/register) to blunt brute-force / credential stuffing.
+export const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 30,                  // 30 attempts per IP per window
+  message: { error: "Too many attempts — please try again later." },
+});
