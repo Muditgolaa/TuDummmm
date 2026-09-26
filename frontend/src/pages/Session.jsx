@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { api } from "../api/client";
+import { interviewApi } from "../api/client";
 import { actions } from "../lib/store";
 import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 
@@ -26,7 +26,7 @@ export default function Session() {
     let active = true;
     (async () => {
       try {
-        const data = await api.get(`/api/sessions/${id}/report`);
+        const data = await interviewApi.get(`/api/sessions/${id}/report`);
         if (!active) return;
         const qs = data.items.map((it) => it.question);
         const res = {};
@@ -76,7 +76,7 @@ export default function Session() {
     if (speech.listening) speech.stop();
     setSubmitting(true);
     try {
-      const res = await api.post(`/api/questions/${current._id}/answers`, {
+      const res = await interviewApi.post(`/api/questions/${current._id}/answers`, {
         content: answer,
         timeSpentSeconds: seconds,
       });

@@ -1,10 +1,11 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useFetch } from "../hooks/useFetch";
+import { interviewApi } from "../api/client";
 
 export default function Report() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { data, loading, error } = useFetch(`/api/sessions/${id}/report`);
+  const { data, loading, error } = useFetch(`/api/sessions/${id}/report`,interviewApi);
 
   if (loading) return <Centered>Loading report…</Centered>;
   if (error) return <Centered>Error: {error}</Centered>;

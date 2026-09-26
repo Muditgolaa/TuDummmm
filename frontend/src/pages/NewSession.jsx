@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api } from "../api/client";
+import { interviewApi } from "../api/client";
 
 export default function NewSession() {
   const navigate = useNavigate();
@@ -15,8 +15,8 @@ export default function NewSession() {
     setError("");
     setLoading(true);
     try {
-      const { session } = await api.post("/api/sessions", { jobTitle, company, jobDescription });
-      await api.post(`/api/sessions/${session._id}/generate`); // Groq, ~2-3s
+      const { session } = await interviewApi.post("/api/sessions", { jobTitle, company, jobDescription });
+      await interviewApi.post(`/api/sessions/${session._id}/generate`); // Groq, ~2-3s
       navigate(`/interviews/${session._id}`);
     } catch (err) {
       setError(err.message);

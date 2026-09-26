@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { api } from "../api/client";
 
-// Tiny data-fetching hook: returns { data, loading, error, refetch }.
-export function useFetch(path) {
+// Tiny data-fetching hook. Pass a client (e.g. interviewApi) to hit another service.
+export function useFetch(path, client = api) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -11,36 +11,28 @@ export function useFetch(path) {
     setLoading(true);
     setError(null);
     try {
-      setData(await api.get(path));
+      setData(await client.get(path));
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [path]);
+  }, [path, client]);
 
   useEffect(() => {
     let cancelled = false;
-
-    async function fetchData() {
+    (async () => {
       try {
-        const result = await api.get(path);
-        if (!cancelled) {
-          setData(result);
-          setError(null);
-        }
+        const result = await client.get(path);
+        if (!cancelled) { setData(result); setError(null); }
       } catch (err) {
         if (!cancelled) setError(err.message);
       } finally {
         if (!cancelled) setLoading(false);
       }
-    }
-
-    void fetchData();
-    return () => {
-      cancelled = true;
-    };
-  }, [path]);
+    })();
+    return () => { cancelled = true; };
+  }, [path, client]);
 
   return { data, loading, error, refetch };
 }
