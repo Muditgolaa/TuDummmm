@@ -1,8 +1,10 @@
 package com.tudummmm.interview.controller;
 
 import com.tudummmm.interview.dto.CreateSessionRequest;
+import com.tudummmm.interview.dto.QuestionResponse;
 import com.tudummmm.interview.dto.SessionResponse;
 import com.tudummmm.interview.model.Session;
+import com.tudummmm.interview.service.QuestionService;
 import com.tudummmm.interview.service.SessionService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -18,12 +20,13 @@ import java.util.UUID;
 public class SessionController {
 
     private final SessionService sessionService;
+    private final QuestionService questionService;
 
-    public SessionController(SessionService sessionService) {
+    public SessionController(SessionService sessionService, QuestionService questionService) {
         this.sessionService = sessionService;
+        this.questionService = questionService;
     }
 
-    // auth.getName() is the userId the JWT filter extracted from the token.
     @PostMapping
     public ResponseEntity<?> create(Authentication auth, @Valid @RequestBody CreateSessionRequest req) {
         Session s = sessionService.create(auth.getName(), req);
@@ -46,5 +49,19 @@ public class SessionController {
     public Map<String, Object> delete(Authentication auth, @PathVariable UUID id) {
         sessionService.delete(auth.getName(), id);
         return Map.of("message", "Session deleted");
+    }
+
+    @PostMapping("/{id}/generate")
+    public Map<String, Object> generate(Authentication auth, @PathVariable UUID id) {
+        List<QuestionResponse> questions = questionService.generate(auth.getName(), id)
+                .stream().map(QuestionResponse::from).toList();
+        return Map.of("status", "ready", "questions", questions);
+    }
+
+    @GetMapping("/{id}/questions")
+    public Map<String, Object> questions(Authentication auth, @PathVariable UUID id) {
+        List<QuestionResponse> questions = questionService.listForSession(auth.getName(), id)
+                .stream().map(QuestionResponse::from).toList();
+        return Map.of("questions", questions);
     }
 }

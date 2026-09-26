@@ -9,13 +9,17 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 
 import java.util.Map;
 
-// Turns exceptions into the { "error": "..." } JSON shape the frontend expects.
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
     @ExceptionHandler(NotFoundException.class)
     public ResponseEntity<?> notFound(NotFoundException ex) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", ex.getMessage()));
+    }
+
+    @ExceptionHandler(IllegalStateException.class)
+    public ResponseEntity<?> conflict(IllegalStateException ex) {
+        return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
