@@ -5,7 +5,7 @@
 TuDummmm combines a study consistency tracker with AI-powered mock interviews in one full-stack application. Track habits, focus time, and todos, then practice against questions tailored to a job description and review scored feedback.
 
 <p align="center">
-  <a href="https://tudummmm.vercel.app/">Live app</a> ·
+  <a href="https://tudummmm-app.vercel.app/">Live app</a> ·
   <a href="https://github.com/Muditgolaa/TuDummmm">Source code</a> ·
   <a href="https://github.com/Muditgolaa/TuDummmm/issues">Report an issue</a>
 </p>
